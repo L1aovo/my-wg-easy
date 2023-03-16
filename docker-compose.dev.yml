@@ -1,10 +1,30 @@
 version: "3.8"
 services:
   wg-easy:
-    image: wg-easy
-    command: npm run serve
+    image: weejewel/wg-easy
+    container_name: wg-easy
+    restart: unless-stopped
+    command: sh -c "cd /;npm install basic-auth;cd /app;/usr/bin/dumb-init node server.js"
     volumes:
       - ./src/:/app/
+      - ./conf:/etc/wireguard
+    ports:
+      - "51820:51820/udp"
+      - "51821:51821/tcp"
     environment: 
+      # WG_LOCAL_NAME为流量代理配置名，请先创建WG_LOCAL_NAME配置
       # - PASSWORD=p
-      - WG_HOST=192.168.1.233
+      - WG_HOST=1.1.1.1 # 云服务器ip或者域名
+      - PASSWORD=fuccccc # 登陆密码
+      - WG_ALLOWED_IPS=192.168.80.0/24, 10.0.0.0/24, 100.100.1.0/24 # 挂载网段
+      - WG_DEFAULT_ADDRESS=10.0.0.x  # wg的虚拟网段
+      - WG_DEFAULT_DNS=8.8.8.8 # wg的DNS
+      - WG_LOCAL_PASS=192.168.80.132 # 此处ip为本地网卡ip,流量出口
+      - WG_PERSISTENT_KEEPALIVE=25
+      - WG_LOCAL_NAME=l1aotest
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1

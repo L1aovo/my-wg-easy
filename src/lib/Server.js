@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-
+const basicAuth = require('basic-auth');
 const express = require('express');
 const expressSession = require('express-session');
 const debug = require('debug')('Server');
@@ -16,12 +16,31 @@ const {
   PASSWORD,
 } = require('../config');
 
+const credentials = {
+  username: 'rois',
+  password: 'l1ao'
+};
+
+
 module.exports = class Server {
 
   constructor() {
     // Express
     this.app = express()
       .disable('etag')
+      .use((req, res, next) => {
+        const user = basicAuth(req);
+
+        if (!user || user.name !== credentials.username || user.pass !== credentials.password) {
+          res.set('WWW-Authenticate', 'Basic realm=Authorization Required');
+          res.sendStatus(401);
+          return;
+        } else {
+          next();
+        }
+
+
+      })
       .use('/', express.static(path.join(__dirname, '..', 'www')))
       .use(express.json())
       .use(expressSession({

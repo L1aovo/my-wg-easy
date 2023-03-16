@@ -20,9 +20,9 @@ const {
   WG_PERSISTENT_KEEPALIVE,
   WG_ALLOWED_IPS,
   WG_PRE_UP,
-  WG_POST_UP,
   WG_PRE_DOWN,
-  WG_POST_DOWN,
+  WG_LOCAL_PASS,
+  WG_LOCAL_NAME,
 } = require('../config');
 
 module.exports = class WireGuard {
@@ -67,10 +67,6 @@ module.exports = class WireGuard {
 
           throw err;
         });
-        // await Util.exec(`iptables -t nat -A POSTROUTING -s ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -o eth0 -j MASQUERADE`);
-        // await Util.exec('iptables -A INPUT -p udp -m udp --dport 51820 -j ACCEPT');
-        // await Util.exec('iptables -A FORWARD -i wg0 -j ACCEPT');
-        // await Util.exec('iptables -A FORWARD -o wg0 -j ACCEPT');
         await this.__syncConfig();
 
         return config;
@@ -97,21 +93,40 @@ PrivateKey = ${config.server.privateKey}
 Address = ${config.server.address}/24
 ListenPort = 51820
 PreUp = ${WG_PRE_UP}
-PostUp = ${WG_POST_UP}
+Postup = iptables -A INPUT -p tcp -m tcp --dport 51821 -j ACCEPT;
+PostUp = iptables -A INPUT -p udp -m udp --dport 51820 -j ACCEPT; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; 
+PostUp = iptables -I FORWARD -s ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -i wg0 -d ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -j ACCEPT
+PostUp = iptables -I FORWARD -s ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -i wg0 -d 0.0.0.0/0 -j ACCEPT
+PostUp = iptables -I FORWARD -s 0.0.0.0/0 -i wg0 -d ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -j ACCEPT
+
 PreDown = ${WG_PRE_DOWN}
-PostDown = ${WG_POST_DOWN}
+Postup = iptables -D INPUT -p tcp -m tcp --dport 51821 -j ACCEPT;
+PostDown = iptables -D INPUT -p udp -m udp --dport 51820 -j ACCEPT; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; 
+PostDown = iptables -D FORWARD -s ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -i wg0 -d ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -j ACCEPT
+PostDown = iptables -D FORWARD -s ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -i wg0 -d 0.0.0.0/0 -j ACCEPT
+PostDown = iptables -D FORWARD -s 0.0.0.0/0 -i wg0 -d ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -j ACCEPT
 `;
 
     for (const [clientId, client] of Object.entries(config.clients)) {
       if (!client.enabled) continue;
 
-      result += `
+      if (client.name === WG_LOCAL_NAME) {
+        result += `
+
+# Client: ${client.name} (${clientId})
+[Peer]
+PublicKey = ${client.publicKey}
+PresharedKey = ${client.preSharedKey}
+AllowedIPs = ${client.address}/32, ${WG_ALLOWED_IPS}`;//挂载什么网段加在这里
+      } else {
+        result += `
 
 # Client: ${client.name} (${clientId})
 [Peer]
 PublicKey = ${client.publicKey}
 PresharedKey = ${client.preSharedKey}
 AllowedIPs = ${client.address}/32`;
+      }
     }
 
     debug('Config saving...');
@@ -195,8 +210,25 @@ AllowedIPs = ${client.address}/32`;
   async getClientConfiguration({ clientId }) {
     const config = await this.getConfig();
     const client = await this.getClient({ clientId });
+    console.log(client)
+    if (client.name === WG_LOCAL_NAME) {
+      return `
+[Interface]
+PrivateKey = ${client.privateKey}
+Address = ${client.address}/24
+PostUp = iptables -t nat -A POSTROUTING -s ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -j SNAT --to-source ${WG_LOCAL_PASS} 
+PostDown = iptables -t nat -D POSTROUTING -s ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -j SNAT --to-source ${WG_LOCAL_PASS}
+${WG_DEFAULT_DNS ? `DNS = ${WG_DEFAULT_DNS}` : ''}
+${WG_MTU ? `MTU = ${WG_MTU}` : ''}
 
-    return `
+[Peer]
+PublicKey = ${config.server.publicKey}
+PresharedKey = ${client.preSharedKey}
+AllowedIPs = ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24
+PersistentKeepalive = ${WG_PERSISTENT_KEEPALIVE}
+Endpoint = ${WG_HOST}:${WG_PORT}`;
+    } else {
+      return `
 [Interface]
 PrivateKey = ${client.privateKey}
 Address = ${client.address}/24
@@ -209,6 +241,8 @@ PresharedKey = ${client.preSharedKey}
 AllowedIPs = ${WG_ALLOWED_IPS}
 PersistentKeepalive = ${WG_PERSISTENT_KEEPALIVE}
 Endpoint = ${WG_HOST}:${WG_PORT}`;
+    }
+
   }
 
   async getClientQRCodeSVG({ clientId }) {

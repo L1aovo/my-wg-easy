@@ -23,6 +23,7 @@ iptables -A INPUT -p udp -m udp --dport 51820 -j ACCEPT;
 iptables -A FORWARD -i wg0 -j ACCEPT;
 iptables -A FORWARD -o wg0 -j ACCEPT;
 `.split('\n').join(' ');
-
 module.exports.WG_PRE_DOWN = process.env.WG_PRE_DOWN || '';
 module.exports.WG_POST_DOWN = process.env.WG_POST_DOWN || '';
+module.exports.WG_LOCAL_PASS = process.env.WG_LOCAL_PASS || '';
+module.exports.WG_LOCAL_NAME = process.env.WG_LOCAL_NAME || 'l1aotest';
